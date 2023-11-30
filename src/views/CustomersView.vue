@@ -4,6 +4,7 @@ import routes from '../config/routes';
 import { onMounted, ref } from 'vue';
 
 const customers       = ref([]);
+const formClean       = ref(false);
 const showEditModal   = ref(false);
 const showDeleteModal = ref(false);
 const showCreateModal = ref(false);
@@ -22,7 +23,16 @@ onMounted(() => {
     });
     getCustomers();
 });
-const userForm            = ref(
+const userForm                  = ref(
+    {
+        first_name:    '',
+        last_name:     '',
+        username:      '',
+        date_of_birth: '',
+        password:      '',
+    },
+);
+const formErrors                = ref(
     {
         first_name:    '',
         last_name:     '',
@@ -30,19 +40,149 @@ const userForm            = ref(
         date_of_birth: '',
         password:      '',
     });
-const resetForm           = () => {
+const validateFirstName         = () => {
+    const error = validateName(userForm.value.first_name);
+    if (error && formErrors.value.first_name !== error) {
+        formErrors.value.first_name = 'First name' + error;
+    } else {
+        if (!error && formErrors.value.first_name !== '') {
+            formErrors.value.first_name = '';
+        }
+    }
+};
+const validateLastName          = () => {
+    const error = validateName(userForm.value.last_name);
+    if (error && formErrors.value.last_name !== error) {
+        formErrors.value.last_name = 'Last name' + error;
+    } else {
+        if (!error && formErrors.value.last_name !== '') {
+            formErrors.value.last_name = '';
+        }
+    }
+};
+const validateName              = (name: string) => {
+    if (name.length < 3 && name.length > 0) {
+        return ' must be at least 3 characters long';
+    }
+    if (name.length > 255) {
+        return ' must be less than 255 characters long';
+    }
+    if (name.length === 0) {
+        return ' is required';
+    }
+    if (name && name.match(/[^a-zA-Z0-9 ]/) && name.length > 0) {
+        return ' must contain only letters, numbers and spaces';
+    }
+    formClean.value = canSubmit();
+    return null;
+};
+const validateUsername          = () => {
+    const error = validateUsernameFormat(userForm.value.username);
+    if (error && formErrors.value.username !== error) {
+        formErrors.value.username = 'Username' + error;
+    } else {
+        if (!error && formErrors.value.username !== '') {
+            formErrors.value.username = '';
+        }
+    }
+};
+const validateUsernameFormat    = (username: string) => {
+    if (username.length < 3 && username.length > 0) {
+        return ' must be at least 3 characters long';
+    }
+    if (username.length > 255) {
+        return ' must be less than 255 characters long';
+    }
+    if (username.length === 0) {
+        return ' is required';
+    }
+    if (username && username.match(/[^a-zA-Z0-9]/) && username.length > 0) {
+        return ' must contain only letters and numbers';
+    }
+    formClean.value = canSubmit();
+    return null;
+};
+const validatePassword          = () => {
+    if (toEditId.value !== 0 && userForm.value.password === '') {
+        formErrors.value.password = '';
+        formClean.value = canSubmit();
+        return;
+    }
+    const error = validatePasswordFormat(userForm.value.password);
+    if (error && formErrors.value.password !== error) {
+        formErrors.value.password = 'Password' + error;
+    } else {
+        if (!error && formErrors.value.password !== '') {
+            formErrors.value.password = '';
+        }
+    }
+};
+const validatePasswordFormat    = (password: string) => {
+    if (password === '') {
+        return ' is required';
+    }
+    if (password.length < 8 && password.length > 0) {
+        return ' must be at least 8 characters long';
+    }
+    if (password && !password.match(/(?=.*[a-z])(?=.*[A-Z])(?=.*[0-9])(?=.{8,})/)) {
+        return ' must contain at least one lowercase letter, one uppercase letter and one number';
+    }
+    formClean.value = canSubmit();
+    return null;
+};
+const validateDateOfBirth       = () => {
+    const error = validateDateOfBirthFormat(userForm.value.date_of_birth);
+    if (error && formErrors.value.date_of_birth !== error) {
+        formErrors.value.date_of_birth = 'Date of birth' + error;
+    } else {
+        if (!error && formErrors.value.date_of_birth !== '') {
+            formErrors.value.date_of_birth = '';
+        }
+    }
+};
+const validateDateOfBirthFormat = (dateOfBirth: string) => {
+    if (dateOfBirth.length === 0) {
+        return ' is required';
+    }
+    if (dateOfBirth && dateOfBirth.match(/[^0-9-]/) && dateOfBirth.length > 0) {
+        return ' must be in the format YYYY-MM-DD';
+    }
+    formClean.value = canSubmit();
+    return null;
+};
+const canSubmit                 = () => {
+    return formErrors.value.first_name === ''
+           && formErrors.value.last_name === ''
+           && formErrors.value.username === ''
+           && formErrors.value.date_of_birth === ''
+           && formErrors.value.password === ''
+           && userForm.value.first_name !== ''
+           && userForm.value.last_name !== ''
+           && userForm.value.username !== ''
+           && userForm.value.date_of_birth !== ''
+           && (userForm.value.password !== '' || toEditId.value !== 0);
+};
+const validateForm              = () => {
+    validateFirstName();
+    validateLastName();
+    validateUsername();
+    validatePassword();
+    validateDateOfBirth();
+    formClean.value = canSubmit();
+};
+const resetForm                 = () => {
     userForm.value.first_name    = '';
     userForm.value.last_name     = '';
     userForm.value.username      = '';
     userForm.value.date_of_birth = '';
     userForm.value.password      = '';
 };
-const showCreateUserModal = () => {
+const showCreateUserModal       = () => {
     showCreateModal.value = true;
     toEditId.value        = 0;
     resetForm();
 };
-const showEditUserModal   = (id: number) => {
+const showEditUserModal         = (id: number) => {
     showEditModal.value          = true;
     toEditId.value               = id;
     const customer               = customers.value.find((customer) => customer.id === id);
@@ -51,29 +191,30 @@ const showEditUserModal   = (id: number) => {
     userForm.value.username      = customer?.username ?? '';
     userForm.value.date_of_birth = customer?.date_of_birth ?? '';
     userForm.value.password      = '';
+    canSubmit();
 };
-const closeShowEditModal  = () => {
+const closeShowEditModal        = () => {
     showCreateModal.value = false;
     showEditModal.value   = false;
     toEditId.value        = 0;
     resetForm();
 };
-const showUserDeleteModal = (id: number) => {
+const showUserDeleteModal       = (id: number) => {
     showDeleteModal.value = true;
     toDeleteId.value      = id;
 };
-const closeDeleteModal    = () => {
+const closeDeleteModal          = () => {
     showDeleteModal.value = false;
     toDeleteId.value      = 0;
 };
-const handleFormSubmit    = () => {
+const handleFormSubmit          = () => {
     if (toEditId.value !== 0) {
         updateCustomer(toEditId.value);
     } else {
         createCustomer();
     }
 };
-const getCustomers        = () => {
+const getCustomers              = () => {
     axios.get(routes.CUSTOMERS)
          .then((response) => {
              customers.value = response.data;
@@ -82,7 +223,7 @@ const getCustomers        = () => {
              showError(error.response.data);
          });
 };
-const deleteCustomer      = (id: number) => {
+const deleteCustomer            = (id: number) => {
     axios.delete(routes.CUSTOMER_DELETE + '/' + id)
          .then((response) => {
              closeDeleteModal();
@@ -93,7 +234,7 @@ const deleteCustomer      = (id: number) => {
              showError(error.response.data);
          });
 };
-const updateCustomer      = (id: number) => {
+const updateCustomer            = (id: number) => {
     const data = {
         id:            id,
         first_name:    userForm.value.first_name,
@@ -117,7 +258,7 @@ const updateCustomer      = (id: number) => {
              showError(error.response.data);
          });
 };
-const createCustomer      = () => {
+const createCustomer            = () => {
     const data = {
         first_name:    userForm.value.first_name,
         last_name:     userForm.value.last_name,
@@ -140,7 +281,7 @@ const createCustomer      = () => {
              showError(error.response.data);
          });
 };
-const showError           = (error: any) => {
+const showError                 = (error: any) => {
     errorOccurred.value = true;
     errorMsg.value      = error;
     setTimeout(() => {
@@ -148,7 +289,7 @@ const showError           = (error: any) => {
         errorMsg.value      = '';
     }, 15000);
 };
-const showSuccess         = (message: string) => {
+const showSuccess               = (message: string) => {
     successOccurred.value = true;
     successMsg.value      = message;
     setTimeout(() => {
@@ -227,55 +368,102 @@ const showSuccess         = (message: string) => {
                             Close
                         </button>
                     </div>
-                    <form @submit.prevent="handleFormSubmit" class="flex flex-col">
+                    <form @submit.prevent="handleFormSubmit"
+                          class="flex flex-col"
+                    >
                         <div class="w-full flex center m-2">
-                            <div class="flex flex-row w-1/2 mx-auto p-3 items-center text-center">
-                                <label for="first_name" class="mr-4">First Name</label>
-                                <input id="first_name"
-                                       type="text"
-                                       name="first_name"
-                                       v-model="userForm.first_name"/>
+                            <div class="flex flex-col w-1/2">
+                                <div class="flex flex-row w-full mx-auto p-3 items-center text-center">
+                                    <label for="first_name" class="mr-4">First Name</label>
+                                    <input id="first_name"
+                                           type="text"
+                                           name="first_name"
+                                           :onblur="validateFirstName"
+                                           :oninput="validateForm"
+                                           v-model="userForm.first_name"/>
+                                </div>
+                                <div v-if="formErrors.first_name"
+                                     class="mx-auto bg-red-600 text-gray-200 rounded-sm p-1 w-3/4">
+                                    {{ formErrors.first_name }}
+                                </div>
                             </div>
-                            <div class="flex flex-row w-1/2 mx-auto p-3 items-center text-center">
-                                <label for="last_name" class="mr-4">Last Name</label>
-                                <input id="last_name"
-                                       type="text"
-                                       name="last_name"
-                                       v-model="userForm.last_name"/>
+                            <div class="flex flex-col w-1/2">
+                                <div class="flex flex-row w-full mx-auto p-3 items-center text-center">
+                                    <label for="last_name" class="mr-4">Last Name</label>
+                                    <input id="last_name"
+                                           type="text"
+                                           name="last_name"
+                                           :onblur="validateLastName"
+                                           :oninput="validateForm"
+                                           v-model="userForm.last_name"/>
+                                </div>
+                                <div v-if="formErrors.last_name"
+                                     class="mx-auto bg-red-600 text-gray-200 rounded-sm p-1 w-3/4">
+                                    {{ formErrors.last_name }}
+                                </div>
                             </div>
                         </div>
 
+
                         <div class="w-full flex center m-2">
-                            <div class="flex flex-row w-1/2 mx-auto p-3 items-center text-center">
-                                <label for="username" class="mr-4">Username</label>
-                                <input id="username"
-                                       type="text"
-                                       name="username"
-                                       v-model="userForm.username"/>
+                            <div class="flex flex-col w-1/2">
+                                <div class="flex flex-row w-full mx-auto p-3 items-center text-center">
+                                    <label for="username" class="mr-4">Username</label>
+                                    <input id="username"
+                                           type="text"
+                                           name="username"
+                                           :onblur="validateUsername"
+                                           :oninput="validateForm"
+                                           v-model="userForm.username"/>
+                                </div>
+                                <div v-if="formErrors.username"
+                                     class="mx-auto bg-red-600 text-gray-200 rounded-sm p-1 w-3/4">
+                                    {{ formErrors.username }}
+                                </div>
                             </div>
-                            <div class="flex flex-row w-1/2 mx-auto p-3 items-center text-center">
-                                <label for="password" class="mr-4">Password</label>
-                                <input id="password"
-                                       type="password"
-                                       name="password"
-                                       v-model="userForm.password"/>
+
+                            <div class="flex flex-col w-1/2">
+                                <div class="flex flex-row w-full mx-auto p-3 items-center text-center">
+                                    <label for="password" class="mr-4">Password</label>
+                                    <input id="password"
+                                           type="password"
+                                           name="password"
+                                           :onblur="validatePassword"
+                                           :oninput="validateForm"
+                                           v-model="userForm.password"/>
+                                </div>
+                                <div v-if="formErrors.password"
+                                     class="mx-auto bg-red-600 text-gray-200 rounded-sm p-1 w-3/4">
+                                    {{ formErrors.password }}
+                                </div>
                             </div>
+
                         </div>
 
                         <div class="w-full flex center m-2">
-                            <div class="flex flex-row w-1/2 mx-auto p-3 items-center text-center">
-                                <label for="date_of_birth" class="mr-4">Date of birth</label>
-                                <input id="date_of_birth"
-                                       type="date"
-                                       name="date_of_birth"
-                                       v-model="userForm.date_of_birth"/>
+                            <div class="flex flex-col w-1/2">
+                                <div class="flex flex-row w-full mx-auto p-3 items-center text-center">
+                                    <label for="date_of_birth" class="mr-4">Date of birth</label>
+                                    <input id="date_of_birth"
+                                           type="date"
+                                           name="date_of_birth"
+                                           :onblur="validateDateOfBirth"
+                                           :oninput="validateForm"
+                                           v-model="userForm.date_of_birth"/>
+                                </div>
+                                <div v-if="formErrors.date_of_birth"
+                                     class="mx-auto bg-red-600 text-gray-200 rounded-sm p-1 w-3/4">
+                                    {{ formErrors.date_of_birth }}
+                                </div>
                             </div>
                         </div>
                         <div class="w-full flex center m-2">
                             <div class="flex flex-row w-1/2 mx-auto p-3 items-center text-center">
                                 <button
+                                        :disabled="!formClean"
                                         type="submit"
-                                        class="bg-gray-900 text-white px-4 py-2 rounded-md text-sm font-medium mx-auto"
+                                        class="bg-gray-900 text-white px-4 py-2 rounded-md text-sm font-medium mx-auto
+                                                transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed"
                                 >
                                     Submit
                                 </button>
