@@ -4,13 +4,12 @@ declare(strict_types = 1);
 namespace Kikopolis\CustomerCrud\Database;
 
 use JsonSerializable;
+use Kikopolis\CustomerCrud\Helper\Hash;
 use PDO;
 use RuntimeException;
 
 abstract class Model implements JsonSerializable {
-    const EXISTING_RECORD = [
-        'id' => 'missing',
-    ];
+    const EXISTING_RECORD_IGNORE = [];
     protected string $table;
     protected array $errors = [];
     protected array $attributes = [];
@@ -99,6 +98,14 @@ abstract class Model implements JsonSerializable {
         return $models;
     }
     
+    public static function findFirstBy(array $conditions): ?Model {
+        $models = static::findBy($conditions);
+        if (empty($models)) {
+            return null;
+        }
+        return $models[0];
+    }
+    
     public static function insert(array $data): bool {
         $model = new static($data);
         return $model->save();
@@ -132,8 +139,12 @@ abstract class Model implements JsonSerializable {
         return (int) $stmt->fetchColumn();
     }
     
-    public function save(): bool {
-        $this->validate($this->attributes, self::EXISTING_RECORD);
+    public function save(array $attributes = []): bool {
+        $attributes = array_filter($attributes, fn($value) => !empty($value));
+        if (!empty($attributes)) {
+            $this->attributes = array_merge($this->attributes, $attributes);
+        }
+        $this->validateFresh($this->attributes);
         if (!empty($this->errors)) {
             throw new RuntimeException(implode(', ', $this->errors));
         }
@@ -158,16 +169,20 @@ abstract class Model implements JsonSerializable {
         return $stmt->execute();
     }
     
-    public function sync(): bool {
-        $this->validate($this->attributes, []);
+    public function sync(array $attributes = []): bool {
+        $attributes = array_filter($attributes, fn($value) => !empty($value));
+        if (!empty($attributes)) {
+            $this->attributes = array_merge($this->attributes, $attributes);
+        }
+        $this->validateSync($this->attributes, [], self::EXISTING_RECORD_IGNORE);
         if (!empty($this->errors)) {
             throw new RuntimeException(implode(', ', $this->errors));
         }
+        $this->hashPassword();
         $difference = array_diff_assoc($this->attributes, $this->oldAttributes);
         if (empty($difference)) {
             return true;
         }
-        $this->hashPassword();
         $sql = "update {$this->getTable()} ";
         $id = $this->attributes['id'];
         unset($this->attributes['id']);
@@ -227,8 +242,43 @@ abstract class Model implements JsonSerializable {
         $this->oldAttributes = $this->attributes;
     }
     
-    protected function validate(array $data, array $rules): void {
+    protected function validateFresh(array $data, array $rules = [], array $ignore = []): void {
         $rules = array_merge($this->rules, $rules);
+        $this->validate($data, $rules, $ignore);
+    }
+    
+    private function validateSync(array $data, array $rules = [], array $ignore = []): void {
+        $rules = array_merge($this->rules, $rules);
+        $rules = $this->stripRulesWithNoValuesForUpdates($data, $rules);
+        $this->validate($data, $rules, $ignore);
+    }
+    
+    private function validate(array $data, array $rules = [], array $ignore = []): void {
+        $parsedRules = $this->parseRules($rules);
+        $parsedRules = $this->ignoreRules($ignore, $parsedRules);
+        foreach ($parsedRules as $parsedRule) {
+            foreach ($parsedRule['rules'] as $rule) {
+                $this->validateRule($parsedRule['key'], $data[$parsedRule['key']] ?? null, $rule);
+            }
+        }
+    }
+    
+    private function stripRulesWithNoValuesForUpdates(array $data, array $rules): array {
+        $strippedRules = [];
+        foreach ($rules as $key => $rule) {
+            if (isset($data[$key])) {
+                $strippedRules[$key] = $rule;
+            }
+        }
+        return $strippedRules;
+    }
+    
+    /**
+     * @param array $rules
+     *
+     * @return array
+     */
+    public function parseRules(array $rules): array {
         $parsedRules = [];
         foreach ($rules as $key => $rule) {
             if (str_contains($rule, '|')) {
@@ -238,11 +288,37 @@ abstract class Model implements JsonSerializable {
             }
             
         }
-        foreach ($parsedRules as $parsedRule) {
-            foreach ($parsedRule['rules'] as $rule) {
-                $this->validateRule($parsedRule['key'], $data[$parsedRule['key']] ?? null, $rule);
+        return $parsedRules;
+    }
+    
+    /**
+     * @param array $ignore
+     * @param mixed $rules
+     *
+     * @return array
+     */
+    public function ignoreRules(array $ignore, mixed $rules): array {
+        foreach ($ignore as $key => $ignoreRule) {
+            if (isset($rules[$key]) && $rules[$key] === $ignoreRule) {
+                unset($rules[$key]);
+            } else {
+                foreach ($rules as $key => $rule) {
+                    if ($rule['rules'] === $ignoreRule) {
+                        unset($rule['rules']);
+                    } else {
+                        foreach ($rule['rules'] as $subKey => $subRule) {
+                            if ($subRule === $ignoreRule) {
+                                unset($rule['rules'][$subKey]);
+                            }
+                        }
+                        $rule['rules'] = array_values($rule['rules']);
+                        $rules[$key] = $rule;
+                    }
+                }
+                $rules = array_filter($rules, fn($rule) => !empty($rule['rules']));
             }
         }
+        return $rules;
     }
     
     /**
@@ -250,7 +326,7 @@ abstract class Model implements JsonSerializable {
      */
     public function hashPassword(): void {
         if (isset($this->attributes['password'])) {
-            $this->attributes['password'] = password_hash($this->attributes['password'], PASSWORD_DEFAULT);
+            $this->attributes['password'] = Hash::make($this->attributes['password']);
         }
     }
     
@@ -261,18 +337,13 @@ abstract class Model implements JsonSerializable {
             }
         } else {
             switch ($rule) {
-                case 'missing':
-                    if ($value) {
-                        $this->errors[$key] = "$key cannot be defined";
-                    }
-                    break;
                 case 'required':
-                    if (!$value) {
+                    if (empty($value)) {
                         $this->errors[$key] = "$key is required";
                     }
                     break;
                 case 'string':
-                    if (!is_string($value)) {
+                    if (!is_string($value) || empty($value)) {
                         $this->errors[$key] = "$key must be a string";
                     }
                     break;
@@ -287,8 +358,8 @@ abstract class Model implements JsonSerializable {
                     }
                     break;
                 case 'unique':
-                    $model = static::findBy([$key => $value])[0];
-                    if ($model) {
+                    $model = static::findFirstBy([$key => $value]);
+                    if ($model && $model->id !== $this->id) {
                         $this->errors[$key] = "$key must be unique";
                     }
             }
